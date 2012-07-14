@@ -41,6 +41,24 @@ module Google
       @col      = entry['gs$cell']['col'].to_i
       @formula  = entry['gs$cell']['inputValue']
       @value    = entry['gs$cell']['$t']
+      @edit_uri = entry['link'].select{|link| link['rel'] == 'edit'}.first['href']
+    end
+    
+    def edit_xml
+<<-EOF
+<entry xmlns="http://www.w3.org/2005/Atom"
+    xmlns:gs="http://schemas.google.com/spreadsheets/2006">
+  <id>#{@edit_uri}</id>
+  <link rel="edit" type="application/atom+xml"
+    href="#{@edit_uri}"/>
+  <gs:cell row="#{@row}" col="#{@col}" inputValue="#{@formula}"/>
+</entry>
+EOF
+    end
+    
+    def save
+      answer = @client.token.put @edit_uri, {:headers => {'Content-Type' => 'application/atom+xml'},
+                                             :body    => edit_xml}
     end
     
     def to_s
