@@ -29,10 +29,29 @@ module Google
     end
   end
   
+  class Cell
+    
+    attr_reader   :row,:col
+    attr_accessor :formula,:value
+    
+    def initialize entry, client
+      @client   = client
+      @json     = entry
+      @row      = entry['gs$cell']['row'].to_i
+      @col      = entry['gs$cell']['col'].to_i
+      @formula  = entry['gs$cell']['inputValue']
+      @value    = entry['gs$cell']['$t']
+    end
+    
+    def to_s
+      "[#{@row}:#{@col} - '#{@formula}', '#{@value}']"
+    end
+    
+  end
+  
   class Worksheet
     attr_reader :writable, :title, :row_count, :col_count
     def initialize entry, client
-      pp entry
       @client = client
       @title  = entry['title']['$t']
       @cells_rel  = 'http://schemas.google.com/spreadsheets/2006#cellsfeed'
@@ -42,6 +61,16 @@ module Google
       @writable = !!(@cells_feed =~ %r|/private/full|)
       @row_count = entry['gs$rowCount']['$t'].to_i
       @col_count = entry['gs$colCount']['$t'].to_i
+    end
+    
+    def cells
+      answer = @client.token.get(@cells_feed)
+      table  = {}
+      answer.parsed['feed']['entry'].each do |entry|
+        cell = Cell.new entry, @client
+        table[[cell.row,cell.col]] = cell
+      end
+      return table
     end
     
     def to_s
@@ -108,17 +137,11 @@ module Google
     
     get '/oauth2callback' do
         @client.set_code params[:code]
-        redirect '/menu'
+        after_authentication
     end
     
     get '/menu' do
       erb :menu
-      html = ''
-      spreadsheets('RUBYTEST').each do |spreadsheet|
-        html += "<p>#{spreadsheet}</p>"
-        spreadsheet.worksheets
-      end
-      html
     end
     
   end
