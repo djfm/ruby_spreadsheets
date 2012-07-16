@@ -1,8 +1,46 @@
 require 'oauth2'
 require 'sinatra/base'
 require 'pp'
+require 'socket'
 
 module Google
+
+  class AuthServer
+    
+    @@client_id     = nil
+    @@client_secret = nil
+    
+    def AuthServer.getAuthentifier port=4567
+      
+      auth   = Google::Authentifier.new( @@client_id, 
+                                         @@client_secret,
+                                         'http://localhost:4567/oauth2callback',
+                                         'https://spreadsheets.google.com/feeds')
+      
+      server = TCPServer.open port
+      loop do
+        client  = server.accept
+        data    = client.gets
+        
+        okhdr   = "HTTP/1.1 200 OK\r\nContent-Type: text/html;\r\n\r\n"
+        array   = data.split ' '
+        
+        if array.first == 'GET'
+          if array[1] == '/'
+            client.puts "HTTP/1.1 303 See Other\r\nLocation: #{auth.authorize_url}\r\n\r\n"
+          elsif array[1] =~ %r|^/oauth2callback|
+            code = (array[1].split "?code=")[1]
+            auth.set_code code
+            client.puts okhdr
+            client.puts "OK!!"
+            return auth
+          end
+        end
+        
+        client.close
+      end
+    end
+  end
 
   class Authentifier
     attr_reader :token
@@ -56,13 +94,27 @@ module Google
 EOF
     end
     
-    def save
+    def save #must probably change @edit_uri after save
       answer = @client.token.put @edit_uri, {:headers => {'Content-Type' => 'application/atom+xml'},
                                              :body    => edit_xml}
     end
     
     def to_s
       "[#{@row}:#{@col} - '#{@formula}', '#{@value}']"
+    end
+    
+  end
+  
+  class Cells
+    
+    attr_reader :cells
+    
+    def initialize cells
+      @cells = cells
+    end
+    
+    def [] row, col
+      cell = @cells[[row,col]]
     end
     
   end
@@ -88,7 +140,7 @@ EOF
         cell = Cell.new entry, @client
         table[[cell.row,cell.col]] = cell
       end
-      return table
+      return Cells.new table
     end
     
     def to_s
@@ -122,18 +174,10 @@ EOF
     
   end
   
-  class Spreadsheets < Sinatra::Base
+  class Spreadsheets
   
-    def initialize
-      super
-      @client = Google::Authentifier.new( settings.client_id, 
-                                          settings.client_secret,
-                                          'http://localhost:4567/oauth2callback',
-                                          'https://spreadsheets.google.com/feeds')
-    end
-    
-    def css name
-      "<link rel='stylesheet' type='text/css' href='/css/#{name}.css'></link>"
+    def initialize authentifier
+      @client = authentifier
     end
     
     def spreadsheets filter=nil
@@ -147,21 +191,7 @@ EOF
                  end
             }
             .map{|entry| Spreadsheet.new entry, @client}
-    end
-    
-    get '/' do
-      erb :auth, :locals => {:authorize_url => @client.authorize_url}
-    end
-    
-    get '/oauth2callback' do
-        @client.set_code params[:code]
-        after_authentication
-    end
-    
-    get '/menu' do
-      erb :menu
-    end
-    
+    end    
   end
 
 end
