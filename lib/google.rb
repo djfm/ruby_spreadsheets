@@ -1,5 +1,4 @@
 require 'oauth2'
-require 'sinatra/base'
 require 'pp'
 require 'socket'
 
@@ -17,6 +16,8 @@ module Google
                                          'http://localhost:4567/oauth2callback',
                                          'https://spreadsheets.google.com/feeds')
       
+      puts "Please go to http://localhost:#{port} to authorize the app!"
+      
       server = TCPServer.open port
       loop do
         client  = server.accept
@@ -33,8 +34,15 @@ module Google
             auth.set_code code
             client.puts okhdr
             client.puts "OK!!"
+            puts "Well done, now we're talking :)"
             return auth
+          else
+            client.puts "HTTP/1.1 403 Forbidden\r\n\r\n"
+            puts "I don't know what to do, there was a problem..."
           end
+        else
+          client.puts "HTTP/1.1 403 Forbidden\r\n\r\n"
+          puts "What the hell are you doing?"
         end
         
         client.close
@@ -79,7 +87,7 @@ module Google
       @col      = entry['gs$cell']['col'].to_i
       @formula  = entry['gs$cell']['inputValue']
       @value    = entry['gs$cell']['$t']
-      @edit_uri = entry['link'].select{|link| link['rel'] == 'edit'}.first['href']
+      @edit_uri = entry['link'].select{|link| link['rel'] == 'edit'}.first['href']+'?alt=json'
     end
     
     def edit_xml
@@ -94,9 +102,12 @@ module Google
 EOF
     end
     
-    def save #must probably change @edit_uri after save
+    def save
       answer = @client.token.put @edit_uri, {:headers => {'Content-Type' => 'application/atom+xml'},
                                              :body    => edit_xml}
+      #get the new edit URI, it sometimes changes after a put!
+      nedit = answer.parsed['entry']['link'].select{|link| link['rel'] == 'edit'}.first['href']+'?alt=json'
+      @edit_uri = nedit
     end
     
     def to_s
